@@ -52,7 +52,7 @@ sub uriName {
 sub create {
     my $self = shift;
 
-    CouchDB::Client::Ex::StoreError->throw( message => "Object already has a revision") if $self->{rev};
+    confess("Object already had a revision") if $self->{rev};
 
     my $content = $self->contentForSubmit;
     my $res;
@@ -62,7 +62,7 @@ sub create {
     else {
         $res = $self->{db}->{client}->req('POST', $self->{db}->uriName, $content);
     }
-    CouchDB::Client::Ex::StoreError->throw( message => $res->{msg}) unless $res->{success};
+    confess("Storage error: $res->{msg}") unless $res->{success};
     $self->{rev} = $res->{json}->{rev};
     $self->{id} = $res->{json}->{id} unless $self->{id};
     return $self;
@@ -81,8 +81,8 @@ sub retrieve {
     my $self = shift;
 
     my $res = $self->{db}->{client}->req('GET', $self->uriName);
-    CouchDB::Client::Ex::NotFound->throw( message => $res->{msg}, name => $self->{name}) if $res->{status} == 404;
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg}) unless $res->{success};
+    confess("Object not found: $res->{msg}") if $res->{status} == 404;
+    confess("Connection error: $res->{msg}") unless $res->{success};
     my $data = $res->{json};
     my %private;
     my @keys = keys %$data; # need to two-step this due to delete()
@@ -95,22 +95,49 @@ sub retrieve {
     $self->{id} = $private{id};
     $self->{rev} = $private{rev};
     $self->{attachments} = $private{attachments} if exists $private{attachments};
-    # if (exist $private{revs}) {
-    #     $self->revisions([ map { { rev => $_ } } @{$private{revs}} ]);
-    # }
-    # elsif (exists $private{revs_info}) {
-    #     $self->revisions($private{revs_info});
-    # }
     return $self;
+}
+
+sub retrieveFromRev {
+    my $self = shift;
+    my $rev = shift;
+
+    my $res = $self->{db}->{client}->req('GET', $self->uriName . '?rev=' . $rev);
+    confess("Object not found: $res->{msg}") if $res->{status} == 404;
+    confess("Connection error: $res->{msg}") unless $res->{success};
+    my $data = $res->{json};
+    my %private;
+    my @keys = keys %$data; # need to two-step this due to delete()
+    for my $k (@keys) {
+        if ($k =~ m/^_(.+)/) {
+            $private{$1} = delete $data->{$k};
+        }
+    }
+    return ref($self)->new({
+        id          => $self->id,
+        rev         => $rev,
+        attachments => $private{attachments},
+        data        => $data,
+        db          => $self->{db},
+    });
+}
+
+sub revisionsInfo {
+    my $self = shift;
+
+    my $res = $self->{db}->{client}->req('GET', $self->uriName . '?revs_info=true');
+    confess("Object not found: $res->{msg}") if $res->{status} == 404;
+    confess("Connection error: $res->{msg}") unless $res->{success};
+    return $res->{json}->{_revs_info};
 }
 
 sub update {
     my $self = shift;
 
-    CouchDB::Client::Ex::StoreError->throw( message => "Object hasn't been retrieved") unless $self->{id} and $self->{rev};
+    confess("Object hasn't been retrieved") unless $self->{id} and $self->{rev};
     my $content = $self->contentForSubmit;
     my $res = $self->{db}->{client}->req('PUT', $self->uriName, $content);
-    CouchDB::Client::Ex::StoreError->throw( message => $res->{msg}) unless $res->{success};
+    confess("Storage error: $res->{msg}") unless $res->{success};
     $self->{rev} = $res->{json}->{rev};
     return $self;
 }
@@ -118,10 +145,10 @@ sub update {
 sub delete {
     my $self = shift;
 
-    CouchDB::Client::Ex::StoreError->throw( message => "Object hasn't been retrieved") unless $self->{id} and $self->{rev};
+    confess("Object hasn't been retrieved") unless $self->{id} and $self->{rev};
     my $res = $self->{db}->{client}->req('DELETE', $self->uriName . "?rev=" . $self->rev);
-    CouchDB::Client::Ex::NotFound->throw( message => $res->{msg}, name => $self->{name}) if $res->{status} == 404;
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg}) unless $res->{success};
+    confess("Object not found: $res->{msg}") if $res->{status} == 404;
+    confess("Connection error: $res->{msg}") unless $res->{success};
     $self->{deletion_stub_rev} = $res->{json}->{rev};
     $self->{rev} = '';
     $self->{data} = {};
@@ -133,12 +160,12 @@ sub fetchAttachment {
     my $self = shift;
     my $attName = shift;
     
-    CouchDB::Client::Ex::NotFound->throw( message => "No such attachment", name => $attName) unless exists $self->{attachments}->{$attName};
+    confess("No such attachment: '$attName'") unless exists $self->{attachments}->{$attName};
     my $res = $self->{db}->{client}->{ua}->request( 
                 HTTP::Request->new('GET', $self->{db}->{client}->uriForPath($self->uriName . '/' . uri_escape_utf8($attName)))
     );
     return $res->content if $res->is_success;
-    CouchDB::Client::Ex::NotFound->throw( message => $res->{msg}, name => $attName);
+    confess("Object not found: $res->{msg}");
 }
 
 sub addAttachment {
@@ -173,8 +200,10 @@ CouchDB::Client::Doc - CouchDB::Client document
 
 =head1 SYNOPSIS
 
-    use CouchDB::Client;
-    ...
+    $doc->data->{foo} = 'new bar';
+    $doc->addAttachment('file.xml', 'application/xml', '<foo/>);
+    $doc->update;
+    $doc->delete;
 
 =head1 DESCRIPTION
 
@@ -202,10 +231,7 @@ only touch it if you know what you're doing.
 
 The C<data> field is a normal Perl hashref that can have nested content. Its
 keys must not contain fields that being with an underscore (_) as those are
-reserved for CouchDB. B<NOTE:> we do not currently check that you are not
-passing in objects as part of your data structure (at any depth level). If you
-do, be warned that the JSON module that happens to have been loaded (depending
-on what L<JSON::Any> picked) may throw a fit.
+reserved for CouchDB.
 
 The C<attachments> field must be structured in the manner that CouchDB expects.
 It is a hashref with attachment names as its keys and hashrefs as values. The
@@ -242,9 +268,9 @@ Returns the path part for this object (if it has an ID, otherwise undef).
 
 =item create
 
-Causes the document to be created in the DB. It will throw a C<CouchDB::Client::Ex::StoreError>
-if the object already has a revision (since that would indicate that it's already in the DB) or
-if the actual storage operation fails.
+Causes the document to be created in the DB. It will throw an exception if the object already
+has a revision (since that would indicate that it's already in the DB) or if the actual 
+storage operation fails.
 
 If the object has an ID it will PUT it to the URI, otherwise it will POST it and set its ID based
 on the result. It returns itself, with the C<rev> field updated.
@@ -257,8 +283,8 @@ of a create/update operation.
 =item retrieve
 
 Loads the document from the database, initialising all its fields in the process. Will
-throw a C<CouchDB::Client::Ex::NotFound> if the document cannot be found, and
-C<CouchDB::Client::Ex::ConnectError> for other issues. It returns the object.
+throw an exception if the document cannot be found, or for connection issues. It returns 
+the object.
 
 Note that the attachments field if defined will contain stubs and not the full content.
 Retrieving the actual data is done using C<fetchAttachment>.
@@ -270,14 +296,13 @@ Same as C<create> but only operates on documents already in the DB.
 =item delete
 
 Deletes the document and resets the object (updating its C<rev>). Returns the object (which
-is still perfectly usable). Throws C<CouchDB::Client::Ex::NotFound> if the document isn't
-found, and C<CouchDB::Client::Ex::ConnectError> for other issues.
+is still perfectly usable). Throws an exception if the document isn't found, or for 
+connection issues.
 
 =item fetchAttachment $NAME
 
-Fetches the attachment with the given name and returns its content. Throws 
-C<CouchDB::Client::Ex::NotFound> if the attachment cannot be retrieved, or if the object
-had no knowledge of such an attachment.
+Fetches the attachment with the given name and returns its content. Throws an exception if 
+the attachment cannot be retrieved, or if the object had no knowledge of such an attachment.
 
 =item addAttachment $NAME, $CONTENT_TYPE, $DATA
 
@@ -289,6 +314,18 @@ is returned.
 
 A simple helper that returns data in Base64 of a form acceptable to CouchDB (on a single
 line).
+
+=item retrieveFromRev $REV
+
+Fetches a specific revision of a document, and returns it I<as a new Doc object>. This is
+to avoid destroying your own Doc object. Throws exceptions if it can't connect or find the
+document.
+
+=item revisionsInfo
+
+Returns an arrayref or hashresf indicating the C<rev> of previous revisions and their
+C<status> (being C<disk>, C<missing>, C<deleted>). Throws exceptions if it can't connect 
+or find the document.
 
 =back
 

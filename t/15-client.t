@@ -15,7 +15,7 @@ my $dbNameNot = 'test-perl-couchdb-client-NOT-EXISTS/';
 my $baseDocName = 'TEST-DOC';
 
 if($cdb->testConnection) {
-    plan tests => 55;
+    plan tests => 63;
 }
 else {
     plan skip_all => 'Could not connect to CouchDB, skipping.';
@@ -258,11 +258,11 @@ ok $DD && !$@, 'DesignDoc created';
     ok @ls == 2, 'multiple listViews works';
     my $res;
     $res = $DD->queryView('all');
-    ok $res && $res->{total_rows} == 1, "queryView for all works";
+    ok $res && @{$res->{rows}} == 1, "queryView for all works";
     $res = $DD->queryView('foo', key => 'bar');
-    ok $res && $res->{total_rows} == 1, "queryView for foo?key=bar works";
+    ok $res && @{$res->{rows}} == 1, "queryView for foo?key=bar works";
     $res = $DD->queryView('foo', key => 'bar', descending => 1);
-    ok $res && $res->{total_rows} == 1, "queryView for foo?key=bar descending works";
+    ok $res && @{$res->{rows}} == 1, "queryView for foo?key=bar descending works";
     $res = $DD->queryView('foo', key => 'bar', count => 0);
     ok $res && @{$res->{rows}} == 0, "queryView for foo?key=bar count=0 works";
     $res = $DD->queryView('foo', key => 'not-there');
@@ -270,6 +270,36 @@ ok $DD && !$@, 'DesignDoc created';
     eval { $DD->queryView('not-there'); };
     ok $@, "Non-extant view doesn't work";
 }
+
+
+### --- BULK TESTS --------------------------------------------------------- ###
+my @docs;
+for my $n (1..10) {
+    push @docs, $DB->newDoc("foo-$n", undef, { bulky => 1 });
+}
+ok $DB->bulkStore(\@docs), 'bulk store';
+my $res = $DD->queryView('all');
+ok $res && @{$res->{rows}} == 11, "bulk was inserted";
+ok $DB->bulkDelete(\@docs), 'bulk delete';
+$res = $DD->queryView('all');
+ok $res && @{$res->{rows}} == 1, "bulk was deleted";
+
+
+### --- TEMP VIEWS --------------------------------------------------------- ###
+{
+    my $res = $DB->tempView({ map => 'function (doc) { if (doc.foo == "bar") emit(doc.foo, doc); }' });
+    ok $res && @{$res->{rows}} == 1, "temp view works";
+}
+
+
+### --- DOC REVISIONS --------------------------------------------------------- ###
+{
+    my $ri = $DOC->revisionsInfo;
+    ok $ri && @$ri == 3, "Revision info ok";
+    ok $ri->[0]->{status} eq 'available' && $ri->[0]->{rev} == $DOC->rev, "revisions are good";
+    ok $DOC->retrieveFromRev($ri->[1]->{rev}), "old version ok";
+}
+
 
 ### --- THE CLEANUP AT THE END
 

@@ -39,12 +39,12 @@ sub queryView {
     my $view = shift;
     my %args = @_;
 
-    CouchDB::Client::Ex::NotFound->throw( message => "No such view", name => $view) unless exists $self->views->{$view};
+    confess("No such view: '$view'") unless exists $self->views->{$view};
     my $sn = $self->id;
     $sn =~ s{^_design/}{};
     my $qs = %args ? $self->{db}->argsToQuery(%args) : '';
     my $res = $self->{db}->{client}->req('GET', $self->{db}->uriName . "_view/$sn/$view" . $qs);
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg}) unless $res->{success};
+    confess("Connection error: $res->{msg}") unless $res->{success};
     return $res->{json};
 }
 
@@ -58,8 +58,9 @@ CouchDB::Client::DesignDoc - CouchDB::Client design documents (views)
 
 =head1 SYNOPSIS
 
-    use CouchDB::Client;
-    ...
+    $dd->listViews;
+    # ...
+    my $res = $dd->queryView('all');
 
 =head1 DESCRIPTION
 
@@ -94,10 +95,10 @@ Returns a list of all the views defined in this design document.
 
 =item queryView $VIEW_NAME, %ARGS?
 
-Takes the name of a view in this design document (C<CouchDB::Client::Ex::NotFound> will be
-thrown if it isn't there) and an optional hash of query arguments as supported by CouchDB
-(e.g. startkey, descending, count, etc.) and returns the data structure that the server
-returns. It will throw C<CouchDB::Client::Ex::ConnectError> for other errors.
+Takes the name of a view in this design document (an exception will be thrown if it isn't
+there) and an optional hash of query arguments as supported by CouchDB (e.g. startkey, 
+descending, count, etc.) and returns the data structure that the server returns. It will
+throw exceptions for connection errors too.
 
 The query parameters are expected to be expressed in a Perlish fashion. For instance if
 one has a boolean value you should use Perl truth and it will work; likewise if you are

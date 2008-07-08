@@ -39,23 +39,23 @@ sub dbInfo {
     my $self = shift;
     my $res = $self->{client}->req('GET', $self->uriName);
     return $res->{json} if $res->{success};
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg});
+    confess("Connection error: $res->{msg}");
 }
 
 sub create {
     my $self = shift;
     my $res = $self->{client}->req('PUT', $self->uriName);
     return $self if $res->{success} and $res->{json}->{ok};
-    CouchDB::Client::Ex::DBExists->throw( message => $res->{msg}, name => $self->{name}) if $res->{status} == 409;
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg});
+    confess("Database '$self->{name}' exists: $res->{msg}") if $res->{status} == 409;
+    confess("Connection error: $res->{msg}");
 }
 
 sub delete {
     my $self = shift;
     my $res = $self->{client}->req('DELETE', $self->uriName);
     return 1 if $res->{success} and $res->{json}->{ok};
-    CouchDB::Client::Ex::NotFound->throw( message => $res->{msg}, name => $self->{name}) if $res->{status} == 404;
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg});
+    confess("Database '$self->{name}' not found: $res->{msg}") if $res->{status} == 404;
+    confess("Connection error: $res->{msg}");
 }
 
 sub newDoc {
@@ -72,7 +72,7 @@ sub listDocIdRevs {
     my %args = @_;
     my $qs = %args ? $self->argsToQuery(%args) : '';
     my $res = $self->{client}->req('GET', $self->uriName . '_all_docs' . $qs);
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg} ) unless $res->{success};
+    confess("Connection error: $res->{msg}") unless $res->{success};
     return [map { { id => $_->{id}, rev => $_->{value}->{_rev} } } @{$res->{json}->{rows}}];
 }
 
@@ -125,6 +125,49 @@ sub designDocExists {
     else {
         return (grep { $_->{id} eq $id } @{$self->listDesignDocIdRevs}) ? 1 : 0;
     }
+}
+
+sub tempView {
+    my $self = shift;
+    my $view = shift;
+    my $res = $self->{client}->req('POST', $self->uriName . '_temp_view', $view);
+    return $res->{json} if $res->{success};
+    confess("Connection error: $res->{msg}");
+}
+
+use Data::Dumper;
+sub bulkStore {
+    my $self = shift;
+    my $docs = shift;
+    my $json = { docs => [map { $_->contentForSubmit } @$docs] };
+    my $res = $self->{client}->req('POST', $self->uriName . '_bulk_docs', $json);
+    confess("Connection error: $res->{msg}") unless $res->{success};
+    my $i = 0;
+    for my $ok (@{$res->{json}->{new_revs}}) {
+        my $doc = $docs->[$i];
+        $doc->{id} = $ok->{id} unless $doc->{id};
+        $doc->{rev} = $ok->{rev};
+        $i++;
+    }
+    return $res->{json} if $res->{success};
+}
+
+sub bulkDelete {
+    my $self = shift;
+    my $docs = shift;
+    my $json = { docs => [map { my $cnt = $_->contentForSubmit; $cnt->{_deleted} = $self->{client}->{json}->true; $cnt; } @$docs] };
+    my $res = $self->{client}->req('POST', $self->uriName . '_bulk_docs', $json);
+    confess("Connection error: $res->{msg}") unless $res->{success};
+    my $i = 0;
+    for my $ok (@{$res->{json}->{new_revs}}) {
+        my $doc = $docs->[$i];
+        $doc->{deletion_stub_rev} = $ok->{rev};
+        $doc->{rev} = '';
+        $doc->data({});
+        $doc->attachments({});
+        $i++;
+    }
+    return $res->{json} if $res->{success};
 }
 
 # from docs
@@ -190,7 +233,13 @@ CouchDB::Client::DB - CouchDB::Client database
 =head1 SYNOPSIS
 
     use CouchDB::Client;
-    ...
+    my $c = CouchDB::Client->new(uri => 'https://dbserver:5984/');
+    my $db = $c->newDB('my-stuff')->create;
+    $db->dbInfo;
+    my $doc = $db->newDoc('dahut.svg', undef, { foo => 'bar' })->create;
+    my $dd = $db->newDesignDoc('dahut.svg', undef, $myViews)->create;
+    #...
+    $db->delete;
 
 =head1 DESCRIPTION
 
@@ -211,7 +260,6 @@ being a reference to the parent C<Couch::Client>. It is not expected that
 you would use this constructor directly, but rather that would would go through
 C<<< Couch::Client->newDB >>>.
 
-
 =item validName $NAME
 
 Returns true if the name is a valid CouchDB database name, false otherwise.
@@ -219,8 +267,7 @@ Returns true if the name is a valid CouchDB database name, false otherwise.
 =item dbInfo
 
 Returns metadata that CouchDB maintains about its databases as a Perl structure.
-It will throw a C<CouchDB::Client::Ex::ConnectError> if it can't connect.
-Typically it will look like:
+It will throw an exception if it can't connect. Typically it will look like:
 
     {
         db_name         => "dj", 
@@ -234,13 +281,12 @@ Typically it will look like:
 =item create
 
 Performs the actual creation of a database. Returns the object itself upon success.
-Throws a C<CouchDB::Client::Ex::DBExists> if it already exists, or a
-C<CouchDB::Client::Ex::ConnectError> for other problems.
+Throws an exception if it already exists, or for connection problems.
 
 =item delete
 
-Deletes the database. Returns true on success. Throws a C<CouchDB::Client::Ex::NotFound> if
-the DB can't be found, and C<CouchDB::Client::Ex::ConnectError> for other problems.
+Deletes the database. Returns true on success. Throws an exception if
+the DB can't be found, or for connection problems.
 
 =item newDoc $ID?, $REV?, $DATA?, $ATTACHMENTS?
 
@@ -251,8 +297,8 @@ constraints on these fields please look at C<<<CouchDB::Client::Doc->new>>>
 =item listDocIdRevs %ARGS?
 
 Returns an arrayref containing the ID and revision of all documents in this DB as hashrefs
-with C<id> and C<rev> keys. Throws a C<CouchDB::Client::Ex::ConnectError> if there's a
-problem. Takes an optional hash of arguments matching those understood by CouchDB queries.
+with C<id> and C<rev> keys. Throws an exception if there's a problem. Takes an optional hash
+of arguments matching those understood by CouchDB queries.
 
 =item listDocs %ARGS?
 
@@ -281,6 +327,26 @@ Same as above, but only matches design documents.
 =item designDocExists $ID, $REV?
 
 Same as above, but only matches design documents.
+
+=item tempView $VIEW
+
+Given a view (defined as a hash with the fields that CouchDB expects from the corresponding
+JSON), will run it and return the CouchDB resultset. Throws an exception if there is a
+connection error.
+
+=item bulkStore \@DOCS
+
+Takes an arrayref of Doc objects and stores them on the server (creating or updating them
+depending on whether they exist or not). Returns the data structure that CouchDB returns
+on success (which is of limited interest as this client already updates all documents so
+that their ID and revisions are correct after this operation), and throws an exception
+upon failure.
+
+=item bulkDelete \@DOCS
+
+Same as above but performs mass deletion of documents. Note that using bulkStore you could
+also obtain the same effect by setting a C<_deleted> field to true on your objects but
+that is not recommended as fields that begin with an underscore are reserved by CouchDB.
 
 =item uriName
 

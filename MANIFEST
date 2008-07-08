@@ -17,4 +17,5 @@ README
 t/00-load.t
 t/05-pod.t
 t/10-pod-coverage.t
+t/12-small-things.t
 t/15-client.t

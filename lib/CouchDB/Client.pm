@@ -4,20 +4,13 @@ package CouchDB::Client;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use JSON::Any;
 use LWP::UserAgent  qw();
 use HTTP::Request   qw();
 use Encode          qw(encode);
 use Carp            qw(confess);
-use Exception::Class
-        (
-            'CouchDB::Client::Ex::ConnectError' => { description => 'Failed to retrieve server info' },
-            'CouchDB::Client::Ex::DBExists'     => { description => 'Database already exists', fields => [qw(name)] },
-            'CouchDB::Client::Ex::NotFound'     => { description => 'No such object', fields => [qw(name)] },
-            'CouchDB::Client::Ex::StoreError'   => { description => 'Failed to store object' },
-        );
 
 use CouchDB::Client::DB;
 
@@ -33,9 +26,9 @@ sub new {
     else {
         $self{uri} = ($opt{scheme} || 'http')      . '://' .
                      ($opt{host}   || 'localhost') . ':'   .
-                     ($opt{post}   || '5984')      . '/';
+                     ($opt{port}   || '5984')      . '/';
     }
-    $self{json} = ($opt{json} || JSON::Any->new(utf8 => 1));
+    $self{json} = ($opt{json} || JSON::Any->new(utf8 => 1, allow_blessed => 1));
     $self{ua}   = ($opt{ua}   || LWP::UserAgent->new(agent => "CouchDB::Client/$VERSION"));
     
     return bless \%self, $class;
@@ -52,7 +45,7 @@ sub serverInfo {
     my $self = shift;
     my $res = $self->req('GET');
     return $res->{json} if $res->{success};
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg});
+    confess("Connection error: $res->{msg}");
 }
 
 sub newDB {
@@ -65,7 +58,7 @@ sub listDBNames {
     my $self = shift;
     my $res = $self->req('GET', '_all_dbs');
     return $res->{json} if $res->{success};
-    CouchDB::Client::Ex::ConnectError->throw( message => $res->{msg} );
+    confess("Connection error: $res->{msg}");
 }
 
 sub listDBs {
@@ -123,7 +116,15 @@ CouchDB::Client - Simple, correct client for CouchDB
 =head1 SYNOPSIS
 
     use CouchDB::Client;
-    ...
+    my $c = CouchDB::Client->new(uri => 'https://dbserver:5984/');
+    $c->testConnection or die "The server cannot be reached";
+    print "Running version " . $c->serverInfo->{version} . "\n";
+    my $db = $c->newDB('my-stuff')->create;
+    
+    # listing databases
+    $c->listDBs;
+    $c->listDBNames;
+    
 
 =head1 DESCRIPTION
 
@@ -138,8 +139,8 @@ This module is a client for the CouchDB database.
 Constructor. Takes a hash or hashref of options: C<uri> which specifies the server's URI;
 C<scheme>, C<host>, C<port> which are used if C<uri> isn't provided and default to 'http',
 'localhost', and '5984' respectively; C<json> which defaults to a JSON::Any object with
-utf8 turned on but can be replaced with anything with the same interface; and C<ua> which
-is a LWP::UserAgent object and can also be replaced.
+utf8 and allow_blessed turned on but can be replaced with anything with the same interface;
+and C<ua> which is a LWP::UserAgent object and can also be replaced.
 
 =item testConnection
 
@@ -149,7 +150,7 @@ Returns true if a connection can be made to the server, false otherwise.
 
 Returns a hashref of the server metadata, typically something that looks like
 C<<< { couchdb => "Welcome", version => "0.8.0-incubating"} >>>. It throws
-a C<CouchDB::Client::Ex::ConnectError> if it can't connect.
+an exception if it can't connect.
 
 =item newDB $NAME
 
@@ -158,8 +159,8 @@ does not need to exist yet, and will not be created if it doesn't.
 
 =item listDBNames
 
-Returns an arrayref of all the database names that the server knows of. Throws a
-C<CouchDB::Client::Ex::ConnectError> if it cannot connect.
+Returns an arrayref of all the database names that the server knows of. Throws an exception
+if it cannot connect.
 
 =item listDBs
 

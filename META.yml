@@ -14,10 +14,10 @@ no_index:
     - inc
     - t
 requires:
-  Exception::Class: 0
   HTTP::Request: 0
+  JSON::Any: 1.17
   LWP::UserAgent: 0
   MIME::Base64: 0
   URI::Escape: 0
-  perl: 5.6
-version: 0.01
+  perl: 5.6.0
+version: 0.02
