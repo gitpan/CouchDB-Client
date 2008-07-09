@@ -4,9 +4,9 @@ package CouchDB::Client;
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
-use JSON::Any;
+use JSON::Any       qw(XS JSON DWIW);
 use LWP::UserAgent  qw();
 use HTTP::Request   qw();
 use Encode          qw(encode);
