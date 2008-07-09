@@ -15,7 +15,14 @@ my $dbNameNot = 'test-perl-couchdb-client-NOT-EXISTS/';
 my $baseDocName = 'TEST-DOC';
 
 if($cdb->testConnection) {
-    plan tests => 63;
+    my $v = $cdb->serverInfo->{version};
+    my ($maj, $min) = ($v =~ m/^(\d+)\.(\d+)\./);
+    if ($maj == 0 and $min < 8) {
+        plan skip_all => "Requires CouchDB version 0.8.0 or better; running $v";
+    }
+    else {
+        plan tests => 63;
+    }
 }
 else {
     plan skip_all => 'Could not connect to CouchDB, skipping.';
