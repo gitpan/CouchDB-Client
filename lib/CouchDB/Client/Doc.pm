@@ -342,7 +342,7 @@ Robin Berjon, <robin @t berjon d.t com>
 =head1 BUGS 
 
 Please report any bugs or feature requests to bug-couchdb-client at rt.cpan.org, or through the
-web interface at http://rt.cpan.org/NoAuth/ReportBug.html?Queue=CouchDb-Client.
+web interface at http://rt.cpan.org/NoAuth/ReportBug.html?Queue=CouchDB-Client.
 
 =head1 COPYRIGHT & LICENSE 
 
