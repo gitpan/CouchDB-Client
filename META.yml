@@ -28,4 +28,4 @@ resources:
   homepage: http://github.com/maverick/couchdb-client
   license: http://dev.perl.org/licenses/
   repository: git://github.com/maverick/couchdb-client.git
-version: 0.07
+version: 0.08
