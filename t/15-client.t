@@ -9,10 +9,10 @@ use CouchDB::Client qw();
 my $cdb = CouchDB::Client->new( uri => $ENV{COUCHDB_CLIENT_URI} || 'http://localhost:5984/' );
 
 # CONFIG
-my $dbName = 'test-perl-couchdb-client/';
-my $dbNameNot = 'test-perl-couchdb-client-NOT-EXISTS/';
+my $dbName = 'test-perl/couchdb-client';
+my $dbNameNot = 'test-perl/couchdb-client/NOT-EXISTS';
 my $dbNameReplicated = 'test-perl-couchdb-client-replicated';
-my $baseDocName = 'TEST-DOC';
+my $baseDocName = 'TEST/DOC';
 
 if($cdb->testConnection) {
 	my $v = $cdb->serverInfo->{version};
@@ -122,7 +122,7 @@ ok $DB, 'DB create';
 {
 	my $info = $DB->dbInfo;
 	ok $info, "dbInfo available";
-	ok $info->{db_name} . '/' eq $dbName, "Data in dbInfo";
+	ok $info->{db_name} eq $dbName, "Data in dbInfo";
 }
 
 # new Doc, list and exists
@@ -359,6 +359,8 @@ my $REP_DB;
 
 		$doc->data->{field3} = 'updated again';
 		$doc->update;
+
+		sleep 2; # give the replication a chance to happen
 
 		eval {$rep_doc->retrieve};
 		ok $rep_doc->data->{field3} eq "updated again" , "updating the original changes the replicated one";
